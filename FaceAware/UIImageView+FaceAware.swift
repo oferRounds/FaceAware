@@ -34,7 +34,7 @@ public extension UIImageView {
         set {
             let image = self.image
             self.image = nil
-            set(image: image, focusOnFaces: newValue)
+            set(image, focusOnFaces: newValue)
         } get {
             return sublayer() != nil ? true : false
         }
@@ -42,32 +42,34 @@ public extension UIImageView {
     
     public func set(image: UIImage?, focusOnFaces: Bool) {
         guard focusOnFaces == true else {
-            self.removeImageLayer(image: image)
+            self.removeImageLayer(image)
             return
         }
-        setImageAndFocusOnFaces(image: image)
+        setImageAndFocusOnFaces(image)
     }
     
     private func setImageAndFocusOnFaces(image: UIImage?) {
-        DispatchQueue.global(qos: .default).async {
+        let qualityOfServiceClass = QOS_CLASS_DEFAULT
+        let backgroundQueue = dispatch_get_global_queue(qualityOfServiceClass, 0)
+        dispatch_async(backgroundQueue, {
             guard let image = image else {
                 return
             }
             
-            let cImage = image.ciImage ?? CIImage(cgImage: image.cgImage!)
+            let cImage = image.CIImage ?? CIImage(CGImage: image.CGImage!)
             
             let detector = CIDetector(ofType: CIDetectorTypeFace, context: nil, options: [CIDetectorAccuracy:CIDetectorAccuracyLow])
-            let features = detector!.features(in: cImage)
+            let features = detector.featuresInImage(cImage)
             
             if features.count > 0 {
                 print("found \(features.count) faces")
-                let imgSize = CGSize(width: Double(image.cgImage!.width), height: (Double(image.cgImage!.height)))
+                let imgSize = CGSize(width: Double(CGImageGetWidth(image.CGImage!)), height: Double(CGImageGetHeight(image.CGImage!)))
                 self.applyFaceDetection(for: features, size: imgSize, image: image)
             } else {
                 print("No faces found")
-                self.removeImageLayer(image: image)
+                self.removeImageLayer(image)
             }
-        }
+        })
     }
     
     private func applyFaceDetection(for features: [AnyObject], size: CGSize, image: UIImage) {
@@ -125,20 +127,20 @@ public extension UIImageView {
         var newImage: UIImage
         if self.debugFaceAware {
             // Draw rectangles around detected faces
-            let rawImage = UIImage(cgImage: image.cgImage!)
+            let rawImage = UIImage(CGImage: image.CGImage!)
             UIGraphicsBeginImageContext(size)
-            rawImage.draw(at: CGPoint.zero)
+            rawImage.drawAtPoint(CGPoint.zero)
             
             let context = UIGraphicsGetCurrentContext()
-            context!.setStrokeColor(UIColor.red.cgColor)
-            context!.setLineWidth(3)
+            CGContextSetStrokeColorWithColor(context, UIColor.redColor().CGColor)
+            CGContextSetLineWidth(context, 3)
             
             for feature in features[0..<features.count] {
                 var faceViewBounds = feature.bounds!
                 faceViewBounds.origin.y = size.height - faceViewBounds.origin.y - faceViewBounds.size.height
                 
-                context!.addRect(faceViewBounds)
-                context!.drawPath(using: .stroke)
+                CGContextAddRect(context, faceViewBounds)
+                CGContextDrawPath(context, .Stroke)
             }
             
             newImage = UIGraphicsGetImageFromCurrentImageContext()!
@@ -146,14 +148,15 @@ public extension UIImageView {
         } else {
             newImage = image
         }
-
-        DispatchQueue.main.sync {
+        
+        dispatch_sync(dispatch_get_main_queue(),{
+            
             self.image = newImage
             
             let layer = self.imageLayer()
-            layer.contents = newImage.cgImage
+            layer.contents = newImage.CGImage
             layer.frame = CGRect(x: offset.x, y: offset.y, width: finalSize.width, height: finalSize.height)
-        }
+        })
     }
     
     private func imageLayer() -> CALayer {
@@ -169,11 +172,12 @@ public extension UIImageView {
     }
     
     private func removeImageLayer(image: UIImage?) {
-        DispatchQueue.main.async {
+        dispatch_async(dispatch_get_main_queue(),{
+            
             // avoid redundant layer when focus on faces for the image of cell specified in UITableView
             self.imageLayer().removeFromSuperlayer()
             self.image = image
-        }
+        })
     }
     
     private func sublayer() -> CALayer? {
